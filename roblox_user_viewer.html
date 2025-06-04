@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Roblox User Viewer</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/light.css" />
+  <style>
+    .avatar-img { border-radius: 8px; }
+    .group-list { list-style: none; padding: 0; }
+    .group-list li { margin-bottom: 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>Roblox User Viewer</h1>
+  <form id="search-form">
+    <input type="text" id="username" placeholder="Enter Roblox username" required />
+    <button type="submit">Search</button>
+  </form>
+
+  <div id="result" style="margin-top: 2em;"></div>
+
+  <script>
+    async function fetchUserId(username) {
+      const res = await fetch(`https://users.roblox.com/v1/usernames/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: [username] })
+      });
+      const data = await res.json();
+      return data.data[0]?.id;
+    }
+
+    async function fetchUserInfo(userId) {
+      const [info, avatar, presence, groups] = await Promise.all([
+        fetch(`https://users.roblox.com/v1/users/${userId}`).then(r => r.json()),
+        fetch(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`).then(r => r.json()),
+        fetch(`https://presence.roblox.com/v1/presence/users`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userIds: [userId] })
+        }).then(r => r.json()),
+        fetch(`https://groups.roblox.com/v2/users/${userId}/groups/roles`).then(r => r.json())
+      ]);
+
+      return { info, avatar: avatar.data[0], presence: presence.userPresences[0], groups: groups.data };
+    }
+
+    document.getElementById("search-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value.trim();
+      const result = document.getElementById("result");
+      result.innerHTML = "Loading...";
+
+      const userId = await fetchUserId(username);
+      if (!userId) {
+        result.innerHTML = `<p>User not found: ${username}</p>`;
+        return;
+      }
+
+      const { info, avatar, presence, groups } = await fetchUserInfo(userId);
+      result.innerHTML = `
+        <h2>${info.displayName} (@${info.name})</h2>
+        <img src="${avatar.imageUrl}" class="avatar-img" width="200" />
+        <p><strong>User ID:</strong> ${info.id}</p>
+        <p><strong>Status:</strong> ${presence.userPresenceType === 2 ? `Playing: ${presence.lastLocation}` : 'Offline'}</p>
+        <p><strong>Created:</strong> ${new Date(info.created).toLocaleDateString()}</p>
+        <h3>Groups:</h3>
+        <ul class="group-list">
+          ${groups.length ? groups.map(g => `<li><a href="https://www.roblox.com/groups/${g.group.id}" target="_blank">${g.group.name}</a> (${g.role})</li>`).join("") : "<li>None</li>"}
+        </ul>
+      `;
+    });
+
+    // PWA Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then(() => {
+        console.log('Service Worker registered');
+      });
+    }
+  </script>
+</body>
+</html>
